@@ -43,16 +43,37 @@ module PQueue {
     
     function DeleteMin(pq: PQueue): PQueue
       requires !IsEmpty(pq)
-    // TODO
-    /* { */
-    /*     var pq' := match (left, right) */
-    /*         case (Leaf, Leaf) => Leaf */
-    /*         case (Leaf, Node(_, _, _)) => right */
-    /*         case (Node(_, _, _), Leaf) => left */
-    /*         case (Node(y1, left1, right1), Node(y2, left2, right2)) => */
-    /*             if y1 < y2 then */
-    /*                  */
-    /* } */
+    {
+        if pq.left.Leaf? || pq.right.Leaf? then
+            // by the IsBalanced property, pq.left is always as large or one node larger
+            // than pq.right
+            pq.left
+        else if pq.left.x <= pq.right.x then
+            Node(pq.left.x, pq.right, DeleteMin(pq.left))
+        else
+            Node(pq.right.x, ReplaceRoot(pq.right, pq.left.x), DeleteMin(pq.left))
+    }
+
+    function ReplaceRoot(pq: PQueue, r: int): PQueue
+        requires !IsEmpty(pq)
+    {
+        // left is empty or r is smaller than either sub-root
+        if pq.left.Leaf? ||
+            (r <= pq.left.x && (pq.right.Leaf? || r <= pq.right.x))
+        then
+            // simply replace the root
+            Node(r, pq.left, pq.right)
+        // right is empty, left has one element
+        else if pq.right.Leaf? then
+            Node(pq.left.x, Node(r, Leaf, Leaf), Leaf)
+        // both left/right are non-empty and `r` needs to be inserted deeper in the sub-trees
+        else if pq.left.x < pq.right.x then
+            // promote left root
+            Node(pq.left.x, ReplaceRoot(pq.left, r), pq.right)
+        else
+            // promote right root
+            Node(pq.right.x, pq.left, ReplaceRoot(pq.right, r))
+    }
 
     // Specification
     ghost function Elements(pq: PQueue): multiset<int> {
@@ -137,15 +158,125 @@ module PQueue {
         DeleteMinCorrect(pq);
     }
     
-    lemma DeleteMinCorrect(pq: PQueue)
+    lemma {:induction false} {:vcs_split_on_every_assert} DeleteMinCorrect(pq: PQueue)
       requires Valid(pq) && !IsEmpty(pq)
       ensures var pq' := DeleteMin(pq);
-        Valid(pq') && Elements(pq') + multiset{pq.x} == Elements(pq)
-    // TODO
+        Valid(pq') &&
+        Elements(pq') + multiset{pq.x} == Elements(pq) &&
+        |Elements(pq')| == |Elements(pq)| - 1
+    {
+        if pq.left.Leaf? || pq.right.Leaf? {}
+        else if pq.left.x <= pq.right.x {
+            DeleteMinCorrect(pq.left);
+        } else {
+            var left, right := ReplaceRoot(pq.right, pq.left.x), DeleteMin(pq.left);
+            var pq' := Node(pq.right.x, left, right);
+            assert pq' == DeleteMin(pq);
+            
+            // Elements post-condition
+            calc {
+                Elements(pq') + multiset{pq.x};
+            ==  // defn Elements
+                (multiset{pq.right.x} + Elements(left) + Elements(right)) + multiset{pq.x};
+            ==  // multiset left assoc
+                ((multiset{pq.right.x} + Elements(left)) + Elements(right)) + multiset{pq.x};
+            == { ReplaceRootCorrect(pq.right, pq.left.x);
+                 assert multiset{pq.right.x} + Elements(left) == Elements(pq.right) + multiset{pq.left.x}; }
+                ((Elements(pq.right) + multiset{pq.left.x}) + Elements(right)) + multiset{pq.x};
+            ==  // defn right
+                ((Elements(pq.right) + multiset{pq.left.x}) + Elements(DeleteMin(pq.left))) + multiset{pq.x};
+            ==  // multiset right assoc
+                (Elements(pq.right) + (multiset{pq.left.x} + Elements(DeleteMin(pq.left)))) + multiset{pq.x};
+            == { DeleteMinCorrect(pq.left);
+                 assert multiset{pq.left.x} + Elements(DeleteMin(pq.left)) == Elements(pq.left); }
+                (Elements(pq.right) + (Elements(pq.left))) + multiset{pq.x};
+            ==
+                multiset{pq.x} + Elements(pq.right) + (Elements(pq.left));
+            ==
+                Elements(pq);
+            }
+            
+            // Validity
+            // Prove IsBinaryHeap(pq')
+            // IsBinaryHeap(left) && IsBinaryHeap(right) &&
+            DeleteMinCorrect(pq.left);
+            assert Valid(right);
+            ReplaceRootCorrect(pq.right, pq.left.x);
+            assert Valid(left);
+            
+            // (left.Leaf? || x <= left.x) &&
+            assert pq.left.x in Elements(left);
+            assert pq.right.x <= pq.left.x;
+            BinaryHeapStoresMin(pq.left, pq.left.x);
+            BinaryHeapStoresMin(pq.right, pq.right.x);
+            assert pq.right.x <= left.x;
+            // (right.Leaf? || x <= right.x)
+            assert right.Leaf? || pq.right.x <= right.x;
+            assert IsBinaryHeap(pq');
+        }
+    }
+
+    lemma {:induction false} {:vcs_split_on_every_assert} ReplaceRootCorrect(pq: PQueue, r: int)
+      requires Valid(pq) && !IsEmpty(pq)
+      ensures var pq' := ReplaceRoot(pq, r);
+        Valid(pq') &&
+        r in Elements(pq') &&
+        |Elements(pq')| == |Elements(pq)| &&
+        Elements(pq) + multiset{r} == Elements(pq') + multiset{pq.x}
+    {
+        var pq' := ReplaceRoot(pq, r);
+        // Element post-condition
+        var left, right := pq'.left, pq'.right;
+        if pq.left.Leaf? ||
+            (r <= pq.left.x && (pq.right.Leaf? || r <= pq.right.x))
+        {
+            // simply replace the root
+            assert Valid(pq');
+            assert |Elements(pq')| == |Elements(pq)|;
+        }
+        else if pq.right.Leaf? {
+            // both left/right are non-empty and `r` needs to be inserted deeper in the sub-trees
+        }
+        else if pq.left.x < pq.right.x {
+            // promote left root
+            assert pq.left.Node? && pq.right.Node?;
+            assert pq.left.x < r || pq.right.x < r;
+            assert pq' == Node(pq.left.x, ReplaceRoot(pq.left, r), pq.right);
+            ReplaceRootCorrect(pq.left, r);
+            assert Valid(pq');
+            calc {
+                Elements(pq') + multiset{pq.x};
+            ==
+                (multiset{pq.left.x} + Elements(ReplaceRoot(pq.left, r)) + Elements(pq.right)) + multiset{pq.x};
+            == { ReplaceRootCorrect(pq.left, r); }
+                (Elements(pq.left) + multiset{r}) + Elements(pq.right) + multiset{pq.x};
+            ==
+                Elements(pq) + multiset{r};
+            }
+        }
+        else {
+            // promote right root
+            assert pq' == Node(pq.right.x, pq.left, ReplaceRoot(pq.right, r));
+            ReplaceRootCorrect(pq.right, r);
+            assert Valid(pq');
+            calc {
+                Elements(pq') + multiset{pq.x};
+            ==  // defn
+                (multiset{pq.right.x} + Elements(pq.left) + Elements(ReplaceRoot(pq.right, r))) + multiset{pq.x};
+            ==  // assoc
+                (Elements(pq.left) + (Elements(ReplaceRoot(pq.right, r)) + multiset{pq.right.x})) + multiset{pq.x};
+            == { ReplaceRootCorrect(pq.right, r); }
+                (Elements(pq.left) + multiset{r} + Elements(pq.right)) + multiset{pq.x};
+            ==
+                Elements(pq) + multiset{r};
+            }
+        }
+    }
 
     ghost predicate IsMin(y: int, s: multiset<int>) {
         y in s && forall x :: x in s ==> y <= x
     }
+
 }
 
 // Ex 10.0, 10.1
