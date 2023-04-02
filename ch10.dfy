@@ -35,18 +35,18 @@ module PQueue {
     }
 
     function RemoveMin(pq: PQueue): (int, PQueue)
-      requires !IsEmpty(pq)
+      requires Valid(pq) && !IsEmpty(pq)
     {
         var Node(x, left, right) := pq;
         (x, DeleteMin(pq))
     }
     
     function DeleteMin(pq: PQueue): PQueue
-      requires !IsEmpty(pq)
+      requires IsBalanced(pq) && !IsEmpty(pq)
     {
-        if pq.left.Leaf? || pq.right.Leaf? then
-            // by the IsBalanced property, pq.left is always as large or one node larger
-            // than pq.right
+        // Ex. 10.4: by the IsBalanced property, pq.left is always as large or one node larger
+        // than pq.right. Thus pq.left.Leaf? ==> pq.right.leaf?
+        if pq.right.Leaf? then
             pq.left
         else if pq.left.x <= pq.right.x then
             Node(pq.left.x, pq.right, DeleteMin(pq.left))
@@ -75,17 +75,25 @@ module PQueue {
             Node(pq.right.x, pq.left, ReplaceRoot(pq.right, r))
     }
 
-    // Specification
+    //////////////////////////////////////////////////////////////
+    // Specification exposed to callers
+    //////////////////////////////////////////////////////////////
+
     ghost function Elements(pq: PQueue): multiset<int> {
         match pq
         case Leaf => multiset{}
         case Node(x, left, right) =>
             multiset{x} + Elements(left) + Elements(right)
     }
+
     ghost predicate Valid(pq: PQueue) {
         IsBinaryHeap(pq) && IsBalanced(pq)
     }
     
+    //////////////////////////////////////////////////////////////
+    // Lemmas
+    //////////////////////////////////////////////////////////////
+
     ghost predicate IsBinaryHeap(pq: PQueue) {
         match pq
         case Leaf => true
@@ -158,7 +166,7 @@ module PQueue {
         DeleteMinCorrect(pq);
     }
     
-    lemma {:induction false} {:vcs_split_on_every_assert} DeleteMinCorrect(pq: PQueue)
+    lemma {:induction false} {:rlimit 1000} {:vcs_split_on_every_assert} DeleteMinCorrect(pq: PQueue)
       requires Valid(pq) && !IsEmpty(pq)
       ensures var pq' := DeleteMin(pq);
         Valid(pq') &&
@@ -216,7 +224,7 @@ module PQueue {
         }
     }
 
-    lemma {:induction false} {:vcs_split_on_every_assert} ReplaceRootCorrect(pq: PQueue, r: int)
+    lemma {:induction false} {:rlimit 1000} {:vcs_split_on_every_assert} ReplaceRootCorrect(pq: PQueue, r: int)
       requires Valid(pq) && !IsEmpty(pq)
       ensures var pq' := ReplaceRoot(pq, r);
         Valid(pq') &&
